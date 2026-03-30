@@ -1,0 +1,33 @@
+{
+  "name": "pg-ai-redactor",
+  "version": "0.1.0",
+  "description": "AI-powered HIPAA Safe Harbor de-identification for PostgreSQL databases",
+  "type": "module",
+  "bin": {
+    "pg-ai-redactor": "./bin/cli.ts"
+  },
+  "scripts": {
+    "start": "bun bin/cli.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["hipaa", "redaction", "de-identification", "postgres", "phi", "safe-harbor"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg": "^8.20.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@faker-js/faker": "^10.3.0",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "openai": "^6.32.0",
+    "pg": "^8.20.0",
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
+  }
+}
