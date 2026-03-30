@@ -1,0 +1,155 @@
+# pg-ai-redactor — full example configuration
+# Copy this file to redactor.config.yaml and adjust for your environment.
+# Docs: https://github.com/your-org/pg-ai-redactor
+#
+# All $UPPERCASE values are resolved from environment variables at runtime.
+# Never hardcode credentials — use env vars or a secrets manager.
+
+# ---------------------------------------------------------------------------
+# Database connection
+# ---------------------------------------------------------------------------
+database:
+  type: postgres                # postgres | mssql | mysql
+  host: $DB_HOST                # e.g. localhost or RDS endpoint
+  port: 5432
+  database: $DB_NAME
+  username: $DB_USER
+  password: $DB_PASSWORD
+  ssl:
+    enabled: true
+    rejectUnauthorized: true    # Set to false only for self-signed certs in dev
+    # ca: /path/to/server-ca.pem   # Optional: PEM-encoded CA certificate
+
+# ---------------------------------------------------------------------------
+# AI provider
+# ---------------------------------------------------------------------------
+ai:
+  provider: openai              # openai | anthropic | ollama
+
+  # --- OpenAI (default) ---
+  model: gpt-4o
+  apiKey: $OPENAI_API_KEY
+  maxTokens: 4096               # Max tokens in the AI response
+  sampleRows: 10                # Rows sampled per column for classification
+
+  # --- Anthropic (Claude) ---
+  # provider: anthropic
+  # model: claude-3-5-sonnet-20241022
+  # apiKey: $ANTHROPIC_API_KEY
+
+  # --- Ollama (local / self-hosted) ---
+  # provider: ollama
+  # model: llama3
+  # baseUrl: http://localhost:11434   # Override default Ollama endpoint
+  # apiKey is not required for Ollama
+
+# ---------------------------------------------------------------------------
+# Redaction engine settings
+# ---------------------------------------------------------------------------
+redaction:
+  chunkSize: 5000               # Rows per batch UPDATE statement
+  concurrency: 4                # Max number of tables processed in parallel
+  consistentMapping: true       # Same input value always maps to the same output
+                                # within a single run (uses an in-memory map)
+  seed: 42                      # Optional: fix the PRNG seed for reproducible output
+                                # (useful for testing / audits)
+
+# ---------------------------------------------------------------------------
+# Allowlist — tables or columns that must NEVER be redacted
+# ---------------------------------------------------------------------------
+allowlist:
+  tables:
+    - public.schema_migrations   # Flyway / Liquibase migration history
+    - public.audit_log           # Audit trail must stay intact
+    - public.lookup_codes        # Reference data — no PII
+
+  columns:
+    - public.patients.id          # Primary key — keep original for FK integrity
+    - public.patients.created_at  # Timestamps used for analytics
+    - public.patients.updated_at
+    - public.orders.order_status  # Enum values — not PII
+
+# ---------------------------------------------------------------------------
+# Denylist — columns that must ALWAYS be redacted regardless of AI output
+# ---------------------------------------------------------------------------
+denylist:
+  columns:
+    - table: public.patients
+      column: notes
+      phiType: free_text          # Run the free_text_scrub strategy
+
+    - table: public.staff
+      column: personal_email
+      phiType: email
+
+    - table: public.encounters
+      column: chief_complaint
+      phiType: free_text
+
+    - table: public.billing
+      column: bank_account_number
+      phiType: account_number
+
+# ---------------------------------------------------------------------------
+# Overrides — replace the AI-suggested strategy for specific columns
+#
+# Available strategies:
+#   faker_name            — replaces with a realistic fake full name
+#   faker_address         — replaces with a realistic fake street address
+#   faker_email           — replaces with a realistic fake email address
+#   date_shift            — shifts dates by a random ±N days (HIPAA-safe)
+#   format_preserve_phone — replaces digits while keeping the phone format
+#   format_preserve_ssn   — replaces digits while keeping the SSN format
+#   consistent_hash       — deterministic token (good for IDs / MRNs)
+#   ip_randomize          — replaces with a random IP in the same class
+#   url_redact            — strips path/query from URLs, keeps the scheme+host
+#   null_replace          — sets the value to NULL
+#   free_text_scrub       — AI-assisted scrubbing of free-form text
+# ---------------------------------------------------------------------------
+overrides:
+  # Shift birth dates by at most 15 days instead of the default 30
+  - table: public.patients
+    column: date_of_birth
+    strategy: date_shift
+    config:
+      maxShiftDays: 15
+
+  # Use a consistent hash for medical record numbers so foreign-key
+  # relationships stay intact across tables
+  - table: public.patients
+    column: mrn
+    strategy: consistent_hash
+
+  - table: public.encounters
+    column: patient_mrn
+    strategy: consistent_hash
+
+  # Null out biometric blobs — no meaningful replacement possible
+  - table: public.patients
+    column: fingerprint_template
+    strategy: null_replace
+
+  # Scrub free-text clinical notes
+  - table: public.encounters
+    column: discharge_summary
+    strategy: free_text_scrub
+
+  # Keep phone format but randomise the digits
+  - table: public.patients
+    column: mobile_phone
+    strategy: format_preserve_phone
+
+# ---------------------------------------------------------------------------
+# Analysis cache — avoids re-calling the AI for unchanged schemas
+# ---------------------------------------------------------------------------
+cache:
+  enabled: true
+  directory: .pg-ai-redactor/cache   # Relative to cwd; created automatically
+
+# ---------------------------------------------------------------------------
+# Audit log — records every redacted value (before/after) per row
+# ---------------------------------------------------------------------------
+audit:
+  enabled: true
+  outputPath: .pg-ai-redactor/audit/ # Written as rolling JSONL files
+  format: jsonl                       # jsonl | json
